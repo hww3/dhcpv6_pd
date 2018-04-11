@@ -10,6 +10,19 @@ string address;
 
 array options;
 
+mixed _encode() {
+  return (["preferred_lifetime": preferred_lifetime, "valid_lifetime": valid_lifetime, 
+	"prefix": prefix, "address": address, "options": options]);
+}
+
+void _decode(mixed x) {
+  preferred_lifetime = x->preferred_lifetime;
+  valid_lifetime = x->valid_lifetime;
+  prefix = x->prefix;
+  address = x->address;
+  options = x->options;
+}
+
 protected variant void create(int _preferred_lifetime, int _valid_lifetime, int _prefix, string|int(0..0) _address) {
   preferred_lifetime = _preferred_lifetime;
   valid_lifetime = _valid_lifetime;

@@ -13,3 +13,21 @@ protected variant void create(int enterprise_num, string enterprise_id) {
 string encode() {
   return duid;
 }
+
+mixed _encode() {
+werror("_encode\n");
+  return (["duid": duid]);
+}
+
+void _decode(mixed x) {
+werror("decode: %O\n", x);
+  duid = x->duid;
+}
+
+protected int(0..1) _equal(mixed other) {
+  return objectp(other) && other->duid == duid;
+}
+
+protected int(0..1) `==(mixed other) {
+  return objectp(other) && other->duid == duid;
+}

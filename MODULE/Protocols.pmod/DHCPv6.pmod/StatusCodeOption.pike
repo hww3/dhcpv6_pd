@@ -5,6 +5,15 @@ constant option_type = 13;
 int status_code;
 string status_message;
 
+mixed _encode() {
+  return ([ "status_code": status_code, "status_message": status_message ]);
+}
+
+void _decode(mixed x) {
+  status_code = x->status_code;
+  status_message = x->status_message;
+}
+
 protected variant void create(int code, string message) {
    status_code = code;
    status_message = message;

@@ -7,6 +7,14 @@ protected void create(array(array(int)) _options) {
   options = _options;
 }
 
+mixed _encode() {
+  return (["options": options]);
+}
+
+void _decode(mixed x) {
+  options = x->options;
+}
+
 protected variant void create() {
   options = ({});
 }

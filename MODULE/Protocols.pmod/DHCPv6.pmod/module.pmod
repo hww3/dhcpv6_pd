@@ -15,6 +15,16 @@ constant MESSAGE_INFORMATION_REQUEST = 11;
 constant MESSAGE_RELAY_FORW = 12;
 constant MESSAGE_RELAY_REPL = 13;
 
+constant OPTION_IAPD = 25;
+constant OPTION_IA_PDOPTION = 26;
+constant OPTION_CLIENT_IDENTIFIER = 1;
+constant OPTION_SERVER_IDENTIFIER = 2;
+constant OPTION_OPTION_REQUEST = 6;
+constant OPTION_ELAPSED_TIME = 8;
+constant OPTION_STATUS_CODE = 13;
+
+constant STATUS_NO_PREFIX_AVAILABLE = 6;
+
 protected void create() {
   foreach(values(Protocols.DHCPv6);; mixed p) {
     if(!programp(p)) continue;

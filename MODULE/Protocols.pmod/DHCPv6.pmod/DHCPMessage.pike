@@ -2,6 +2,7 @@ constant message_type = 0;
 int transaction_id;
 
 array(.DHCPOption) options;
+multiset(int) option_types = (<>);
 
 inherit ADT.struct;
 
@@ -25,8 +26,22 @@ protected void decode_body(Stdio.Buffer buf) {
   object option; 
   while(sizeof(this)) {
     option = decode_option(buf);
+    if(option) {
+      options += ({option});
+      option_types[option->option_type] = 1;
+    }
   }
-  if(option) options += ({option});
+}
+
+int(0..1) has_option(int option_type) {
+  return option_types[option_type];
+}
+
+.DHCPOption get_option(int option_type) {
+  foreach(options;; .DHCPOption option)
+    if(option->option_type == option_type) return option;
+
+  return 0;
 }
 
 object decode_option(Stdio.Buffer buf) {

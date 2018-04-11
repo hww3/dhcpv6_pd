@@ -1,5 +1,4 @@
 inherit .DHCPOption;
-constant IA_PD_OPTION = 26;
 
 constant option_type = 25;
 .IAID iaid;
@@ -7,6 +6,17 @@ int t1;
 int t2;
 
 array options;
+multiset(int) option_types = (<>);
+
+mixed _encode() {
+  return (["t1": t1, "t2": t2, "iaid": (iaid)]);
+}
+
+mixed _decode(mixed x) {
+  t1 = x->t1;
+  t2 = x->t2;
+  iaid = x->iaid;
+}
 
 protected variant void create(.IAID _iaid, int t1_secs, int t2_secs, array _options) {
   iaid = _iaid;
@@ -36,9 +46,12 @@ werror("parsing IAPD\n");
   object option;
 
   while(sizeof(buf)) {
-   option = decode_pd_option(buf);
+    option = decode_pd_option(buf);
  
-    if(option) options +=({option});
+    if(option) {
+      options +=({option});
+      option_types[option->option_type] = 1;
+    }
   }
 }
 
@@ -47,7 +60,7 @@ object decode_pd_option(Stdio.Buffer buf) {
 
   int pd_type = buf->read_int(2);
 
-  if(pd_type != IA_PD_OPTION) {
+  if(pd_type != .OPTION_IA_PDOPTION) {
      throw(Error.Generic("Received invalid IA_PD option type " + pd_type +".\n"));
   }
 //  rk->rewind();
@@ -55,4 +68,15 @@ object decode_pd_option(Stdio.Buffer buf) {
 
   object option = .IA_PDOption(buf->read_hstring(2));
   return option;
+}
+
+int(0..1) has_option(int option_type) {
+  return option_types[option_type];
+}
+
+.DHCPOption get_option(int option_type) {
+  foreach(options;; .DHCPOption option)
+    if(option->option_type == option_type) return option;
+
+  return 0;
 }

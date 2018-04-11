@@ -4,6 +4,14 @@ constant option_type = 8;
 
 int elapsed_time;
 
+mixed _encode() {
+  return ([ "elapsed_time": elapsed_time ]);
+}
+
+void _decode(mixed x) {
+  elapsed_time = x->elapsed_time;
+}
+
 protected variant void create(int since) {
   if(!since) elapsed_time = 0;
   else {

@@ -4,6 +4,14 @@ constant option_type = 2;
 
 .DUID duid;
 
+mixed _encode() {
+  return ([ "duid": duid ]);
+}
+
+void _decode(mixed x) {
+  duid = x->duid;
+}
+
 protected variant void create(.DUID _duid) {
   duid = _duid;
 }
