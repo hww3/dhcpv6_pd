@@ -100,6 +100,7 @@ void handle_advertise_message(AdvertiseMessage message, string addr) {
     lease_data->server_identifier = message->get_option(OPTION_SERVER_IDENTIFIER);
     lease_data->server_address = addr;
     Stdio.write_file(leasefile, encode_value(lease_data));
+    begin_request(0);
   }
 }
 
@@ -195,6 +196,10 @@ void begin_solicit(int|void since) {
   call_out(send_solicit, 5, since);
 }
 
+void begin_request(int|void since) {
+  call_out(send_request, 0, since);
+}
+
 void receive_timed_out(int since, int attempts) {
   werror("Hit timeout awaiting actionable messages\n");
   int old_state = current_state;
@@ -223,6 +228,10 @@ void send_request(int|void since, int|void attempts, float|void timeout) {
     since = time();
     current_txn = generate_transaction_id();
   } 
+
+  object p = RequestMessage(current_txn);
+  object id = ClientIdOption(duid);
+  
 }
 
 void send_solicit(int|void since, int|void attempts, float|void timeout) {
