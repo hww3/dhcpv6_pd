@@ -51,10 +51,8 @@ object decode_option(Stdio.Buffer buf) {
  //= Protocols.DHCPv6.option_type_mapping[option_type];
 
   if(!p) throw(Error.Generic("Invalid DHCP Option type " + option_type +".\n"));
-werror("p: %O\n", p);
   object option;
   string s = buf->read_hstring(2);
-  werror("s: %O\n", s);
   option = p(s);
   return option;
 }

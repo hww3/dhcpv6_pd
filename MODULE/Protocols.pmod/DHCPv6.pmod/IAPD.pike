@@ -9,13 +9,15 @@ array options;
 multiset(int) option_types = (<>);
 
 mixed _encode() {
-  return (["t1": t1, "t2": t2, "iaid": (iaid)]);
+  return (["t1": t1, "t2": t2, "iaid": iaid, "options": options]);
 }
 
 mixed _decode(mixed x) {
   t1 = x->t1;
   t2 = x->t2;
   iaid = x->iaid;
+  options = x->options;
+  register_options();
 }
 
 protected variant void create(.IAID _iaid, int t1_secs, int t2_secs, array _options) {
@@ -23,6 +25,12 @@ protected variant void create(.IAID _iaid, int t1_secs, int t2_secs, array _opti
   t1 = t1_secs;
   t2 = t2_secs;
   options = _options;
+  register_options();
+}
+
+void register_options() {
+  foreach(options;; object option) 
+    option_types[option->option_type] = 1;
 }
 
 protected void encode_body(Stdio.Buffer buf) {
@@ -30,8 +38,9 @@ protected void encode_body(Stdio.Buffer buf) {
   buf->add_int(t1, 4);
   buf->add_int(t2, 4);
   foreach(options;; object option) {
-mixed e = option->encode();
-werror("OPTION: %O => %O\n", option, e);
+werror("OPTION: %O", option);
+mixed e = option->encode(); 
+werror(" => %O\n", e);
      buf->add(e);
   }
 }

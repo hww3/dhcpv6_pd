@@ -21,9 +21,13 @@ constant OPTION_CLIENT_IDENTIFIER = 1;
 constant OPTION_SERVER_IDENTIFIER = 2;
 constant OPTION_OPTION_REQUEST = 6;
 constant OPTION_ELAPSED_TIME = 8;
+constant OPTION_UNICAST = 12;
 constant OPTION_STATUS_CODE = 13;
 
 constant STATUS_NO_PREFIX_AVAILABLE = 6;
+constant STATUS_NO_BINDING = 3;
+constant STATUS_SUCCESS = 0;
+constant STATUS_UNSPECIFIED_FAILURE = 1;
 
 protected void create() {
   foreach(values(Protocols.DHCPv6);; mixed p) {

@@ -56,11 +56,18 @@ object decode_option(Stdio.Buffer buf) {
 }
 
 void encode_body(Stdio.Buffer buf) {
-  buf->add_int(3600*24, 4);
-  buf->add_int(3600*36, 4);
+  buf->add_int(preferred_lifetime, 4);
+  buf->add_int(valid_lifetime, 4);
   buf->add_int(prefix, 1);
   if(!address)
     buf->add_int(0, 16);
   else
     buf->add_ints(Protocols.IPv6.parse_addr(address), 2);
+}
+
+int(0..1) eq(mixed other) {
+  return other->prefix == prefix && 
+         other->address == address && 
+         other->preferred_lifetime == preferred_lifetime && 
+         other->valid_lifetime == valid_lifetime;
 }

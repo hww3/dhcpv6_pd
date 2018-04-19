@@ -4,12 +4,12 @@ inherit ADT.struct;
 
 protected variant void create(void|string(8bit) s) {
   ::create(s);
-werror("%O(%O)\n", this, s);
+//werror("%O(%O)\n", this, s);
   decode();
 }
 
 protected void decode() {
-werror("%O->decode()\n", this);
+//werror("%O->decode()\n", this);
   decode_body(this);
 }
 
@@ -25,7 +25,7 @@ string encode() {
   add_int(option_type, 2);
   Stdio.Buffer b = Stdio.Buffer();    
   encode_body(b);
-werror("option type %O, length %O\n", option_type, sizeof(b));
+// werror("option type %O, length %O\n", option_type, sizeof(b));
   add_int(sizeof(b), 2);
   add(b->read());
   return read();
