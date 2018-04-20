@@ -13,8 +13,11 @@ constant SOL_MAX_DELAY = 1;
 constant CNF_MAX_DELAY = 1;
 constant REQ_MAX_RC = 10;
 
+string ndpdconffile = "/etc/inet/ndpd.conf";
+
 string leasefile = "/var/run/dhcpv6_pd_leases";
-string v6if = "net0";
+string upstream_interface = "net0";
+string downstream_interface = "net1";
 string identifier;
 string localv6addr;
 int have_leases;
@@ -39,11 +42,11 @@ int main(int argc, array argv) {
   identifier = Standards.JSON.decode(Process.popen("sysinfo"))->UUID;
   duid = DUID(0, identifier);
   werror("Identifier: %O\n", identifier);
-  localv6addr = get_if_address(v6if);
+  localv6addr = get_if_address(upstream_interface);
   if(!localv6addr) {
-    fatal("Unable to determine IPv6 address for " + v6if + ".");
+    fatal("Unable to determine IPv6 address for " + upstream_interface + ".");
   }
-  iaid = IAID(Crypto.MD5.hash(v6if)[0..3]);
+  iaid = IAID(Crypto.MD5.hash(upstream_interface)[0..3]);
 
   werror("Address: %O\n", localv6addr);
   string leases = Stdio.read_file(leasefile);
@@ -112,7 +115,7 @@ void write_lease(DHCPMessage message, string addr, int|void confirmed) {
   object current_iapd = message->get_option(OPTION_IAPD);
   mapping ld = ([]);
   ld->current_iapd = current_iapd;
-  ld->v6if = v6if;
+  ld->upstream_interface = upstream_interface;
   ld->identifier = identifier;
   ld->updated = time();
   ld->server_identifier = message->get_option(OPTION_SERVER_IDENTIFIER);
@@ -147,12 +150,12 @@ void handle_reply_message(ReplyMessage message, string addr) {
       if(lease_data && lease_data->confirmed)
         new_option = lease_data->current_iapd->get_option(OPTION_IA_PDOPTION);
       write_lease(message, addr, 1);
-      trigger_lease(new_option, old_option->eq(new_option));
+      trigger_lease(new_option, !new_option->eq(old_option), old_option);
     }
   }
 }
 
-void trigger_lease(object prefix_option, int has_changed) {
+void trigger_lease(object prefix_option, int has_changed, object old_prefix) {
   werror("LEASE COMPLETED: %O\n", lease_data);
   if(t1_call_out) remove_call_out(t1_call_out);
   if(t2_call_out) remove_call_out(t2_call_out);
@@ -167,11 +170,51 @@ void trigger_lease(object prefix_option, int has_changed) {
   t1_call_out = call_out(begin_renew, t1);
   t2_call_out = call_out(begin_rebind, t2);
 
-  call_out(do_trigger_lease, 0, prefix_option, has_changed);
+  call_out(do_trigger_lease, 0, prefix_option, has_changed, old_prefix);
 }
 
-void do_trigger_lease(IA_PDOption allocation, int has_changed) {
-werror("do_trigger_lease(%O, %O)\n", allocation, has_changed);
+void do_trigger_lease(IA_PDOption allocation, int has_changed, IA_PDOption old_allocation) {
+werror("do_trigger_lease(%O, %O, %O)\n", allocation, has_changed, old_allocation);
+   string conf = Stdio.read_file(ndpdconffile);
+   int must_add;
+   int must_remove;
+werror("Old conf: %O\n", conf);
+   if(search(conf, "\nprefix " + allocation->address + "/" + allocation->prefix) == -1 || has_changed)
+     must_add = 1;
+   if(old_allocation && has_changed) must_remove = 1;
+
+
+   if(must_remove) {
+      string before, after; 
+      string searchstring = "\nprefix " + old_allocation->address + "/" + old_allocation->prefix;
+      int start = search(conf, searchstring);
+      if(start != -1) {
+         int end = search(conf, "\n", start + sizeof(searchstring));
+         if(start != 0) conf = conf[0.. start-1];
+         if(end != -1) conf = conf[end+1 ..];
+      }
+   }
+
+   if(must_add) {
+      conf+="\nprefix " + allocation->address + "/" + allocation->prefix + " " + downstream_interface + " AdvOnLinkFlag on AdvAutonomousFlag on AdvPreferredLifetime " + allocation->preferred_lifetime + " AdvValidLifetime " + allocation->valid_lifetime + "\n";
+   }
+
+   if(must_add || must_remove) {
+
+      string before, after;
+      string searchstring = "\nif " + downstream_interface + " AdvSendAdvertisements";
+      int start = search(conf, searchstring);
+      if(start != -1) {
+         int end = search(conf, "\n", start + sizeof(searchstring));
+         if(start != 0) conf = conf[0.. start-1];
+         if(end != -1) conf = conf[end+1 ..];
+      }
+      conf += "\nif " + downstream_interface + " AdvSendAdvertisements on\n";
+
+     werror("conf file: %O\n", conf);
+     Stdio.write_file(ndpdconffile, conf);
+     Process.popen("/usr/sbin/svcadm restart ndp");
+   }
 }
 
 void do_trigger_abandon(IA_PDOption allocation) {

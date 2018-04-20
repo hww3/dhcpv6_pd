@@ -66,7 +66,8 @@ void encode_body(Stdio.Buffer buf) {
 }
 
 int(0..1) eq(mixed other) {
-  return other->prefix == prefix && 
+  return other && 
+         other->prefix == prefix && 
          other->address == address && 
          other->preferred_lifetime == preferred_lifetime && 
          other->valid_lifetime == valid_lifetime;
