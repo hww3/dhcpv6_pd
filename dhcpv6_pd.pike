@@ -160,7 +160,6 @@ void trigger_lease(object prefix_option, int has_changed, object old_prefix) {
   if(t1_call_out) remove_call_out(t1_call_out);
   if(t2_call_out) remove_call_out(t2_call_out);
 
-  // TODO we don't handle prefix lifetimes properly; we should do that.
   int t1 = lease_data->current_iapd->t1;
   int t2 = lease_data->current_iapd->t2;
 
@@ -175,6 +174,8 @@ void trigger_lease(object prefix_option, int has_changed, object old_prefix) {
 
 void do_trigger_lease(IA_PDOption allocation, int has_changed, IA_PDOption old_allocation) {
 werror("do_trigger_lease(%O, %O, %O)\n", allocation, has_changed, old_allocation);
+
+// TODO we need to come up with a better mechanism for writing configuration.
    string conf = Stdio.read_file(ndpdconffile);
    int must_add;
    int must_remove;
