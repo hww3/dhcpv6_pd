@@ -13,11 +13,6 @@ constant SOL_MAX_DELAY = 1;
 constant CNF_MAX_DELAY = 1;
 constant REQ_MAX_RC = 10;
 
-string ndpdconffile = "/etc/inet/ndpd.conf";
-
-string leasefile = "/var/run/dhcpv6_pd_leases";
-string upstream_interface = "net0";
-string downstream_interface = "net1";
 string identifier;
 string localv6addr;
 int have_leases;
@@ -38,18 +33,27 @@ IAID iaid;
 
 int current_iapd_confirmed;
 
+object config = Config();
+object system_module = SystemTypes.SmartOS(config);
+
+class Config {
+  string upstream_interface = "net0";
+  string downstream_interface = "net1";
+  string leasefile = "/var/run/dhcpv6_pd_leases";
+}
+
 int main(int argc, array argv) {
-  identifier = Standards.JSON.decode(Process.popen("sysinfo"))->UUID;
+  identifier = system_module->get_identifier();
   duid = DUID(0, identifier);
   werror("Identifier: %O\n", identifier);
-  localv6addr = get_if_address(upstream_interface);
+  localv6addr = get_if_address(config->upstream_interface);
   if(!localv6addr) {
-    fatal("Unable to determine IPv6 address for " + upstream_interface + ".");
+    fatal("Unable to determine IPv6 address for " + config->upstream_interface + ".");
   }
-  iaid = IAID(Crypto.MD5.hash(upstream_interface)[0..3]);
+  iaid = IAID(Crypto.MD5.hash(config->upstream_interface)[0..3]);
 
   werror("Address: %O\n", localv6addr);
-  string leases = Stdio.read_file(leasefile);
+  string leases = Stdio.read_file(config->leasefile);
   if(leases) {
     mapping ld;
     mixed e = catch(ld = decode_value(leases));
@@ -115,7 +119,7 @@ void write_lease(DHCPMessage message, string addr, int|void confirmed) {
   object current_iapd = message->get_option(OPTION_IAPD);
   mapping ld = ([]);
   ld->current_iapd = current_iapd;
-  ld->upstream_interface = upstream_interface;
+  ld->upstream_interface = config->upstream_interface;
   ld->identifier = identifier;
   ld->updated = time();
   ld->server_identifier = message->get_option(OPTION_SERVER_IDENTIFIER);
@@ -123,7 +127,7 @@ void write_lease(DHCPMessage message, string addr, int|void confirmed) {
   ld->server_address = addr;
   ld->confirmed = confirmed;
   lease_data = ld;
-  Stdio.write_file(leasefile, encode_value(lease_data));
+  Stdio.write_file(config->leasefile, encode_value(lease_data));
 }
 
 void handle_reply_message(ReplyMessage message, string addr) {
@@ -169,56 +173,7 @@ void trigger_lease(object prefix_option, int has_changed, object old_prefix) {
   t1_call_out = call_out(begin_renew, t1);
   t2_call_out = call_out(begin_rebind, t2);
 
-  call_out(do_trigger_lease, 0, prefix_option, has_changed, old_prefix);
-}
-
-void do_trigger_lease(IA_PDOption allocation, int has_changed, IA_PDOption old_allocation) {
-werror("do_trigger_lease(%O, %O, %O)\n", allocation, has_changed, old_allocation);
-
-// TODO we need to come up with a better mechanism for writing configuration.
-   string conf = Stdio.read_file(ndpdconffile);
-   int must_add;
-   int must_remove;
-werror("Old conf: %O\n", conf);
-   if(search(conf, "\nprefix " + allocation->address + "/" + allocation->prefix) == -1 || has_changed)
-     must_add = 1;
-   if(old_allocation && has_changed) must_remove = 1;
-
-
-   if(must_remove) {
-      string before, after; 
-      string searchstring = "\nprefix " + old_allocation->address + "/" + old_allocation->prefix;
-      int start = search(conf, searchstring);
-      if(start != -1) {
-         int end = search(conf, "\n", start + sizeof(searchstring));
-         if(start != 0) conf = conf[0.. start-1];
-         if(end != -1) conf = conf[end+1 ..];
-      }
-   }
-
-   if(must_add) {
-      conf+="\nprefix " + allocation->address + "/" + allocation->prefix + " " + downstream_interface + " AdvOnLinkFlag on AdvAutonomousFlag on AdvPreferredLifetime " + allocation->preferred_lifetime + " AdvValidLifetime " + allocation->valid_lifetime + "\n";
-   }
-
-   if(must_add || must_remove) {
-
-      string before, after;
-      string searchstring = "\nif " + downstream_interface + " AdvSendAdvertisements";
-      int start = search(conf, searchstring);
-      if(start != -1) {
-         int end = search(conf, "\n", start + sizeof(searchstring));
-         if(start != 0) conf = conf[0.. start-1];
-         if(end != -1) conf = conf[end+1 ..];
-      }
-      conf += "\nif " + downstream_interface + " AdvSendAdvertisements on\n";
-
-     werror("conf file: %O\n", conf);
-     Stdio.write_file(ndpdconffile, conf);
-     Process.popen("/usr/sbin/svcadm restart ndp");
-   }
-}
-
-void do_trigger_abandon(IA_PDOption allocation) {
+  call_out(system_module->prefix_acquired, 0, prefix_option, has_changed, old_prefix);
 }
 
 void rebind_failed() {
@@ -231,8 +186,8 @@ void rebind_failed() {
   lease_data = ([]);
   current_iapd_confirmed = 0;
   
-  call_out(do_trigger_abandon, 0, ld->current_iapd->get_option(OPTION_IA_PDOPTION));
-  rm(leasefile); 
+  call_out(system_module->prefix_abandoned, 0, ld->current_iapd->get_option(OPTION_IA_PDOPTION));
+  rm(config->leasefile); 
   call_out(begin_solicit, random((float)SOL_MAX_DELAY), 0);
 }
 
