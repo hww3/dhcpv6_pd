@@ -25,6 +25,8 @@ mixed t1_call_out;
 mixed t2_call_out;
 float last_timeout = 0.0;
 int keep_trying = 1;
+int last_message_type;
+int shutting_down;
 
 Stdio.UDP dhcp;
 DUID duid;
@@ -39,6 +41,7 @@ object system_module = SystemTypes.SmartOS(config);
 class Config {
   string upstream_interface = "net0";
   string downstream_interface = "net1";
+  int requested_prefix = 64;
   string leasefile = "/var/run/dhcpv6_pd_leases";
 }
 
@@ -82,7 +85,18 @@ int main(int argc, array argv) {
     werror("Scheduling lease confirmation...\n");
     call_out(begin_rebind, random((float)CNF_MAX_DELAY), 0);
   }
+
+  signal(signum("INT"), do_shutdown);
+  signal(signum("QUIT"), do_shutdown);
   return -1;
+}
+
+void do_shutdown() {
+  werror("Shut down in progress.\n");
+  keep_trying = 0;
+  shutting_down = 1;
+  call_out(begin_release, 0, 0);
+  call_out(exit, 5, 0);
 }
 
 void fatal(string message, int|void retcode) {
@@ -108,6 +122,7 @@ string get_if_address(string v6if) {
 void handle_advertise_message(AdvertiseMessage message, string addr) {
   if(is_actionable_advertise(message)) {
     current_state = NOT_AWAITING;
+    last_message_type = 0;
     if(time_out_id) remove_call_out(time_out_id);
 
     write_lease(message, addr);
@@ -135,26 +150,38 @@ void handle_reply_message(ReplyMessage message, string addr) {
     int have_good_lease = 0;
     object iapd = message->get_option(OPTION_IAPD);
 
-    foreach(iapd->options;; object option) {
-      if(option->prefix && option->preferred_lifetime)
-        have_good_lease = 1;
+    if(last_message_type == MESSAGE_RELEASE) {
+      werror("Received reply to RELEASE.\n");
+      object o =  message->get_option(OPTION_STATUS_CODE);
+      if(o && o->status_message) werror("Status Code: %d, Message: %O\n", o->status_code, o->status_message);
+
+      rebind_failed(); // a bit of a misnomer now
     }
+    else {
+      if(!is_leasable_reply(message)) return;
 
-    if(have_good_lease) {
-      current_state = NOT_AWAITING;
-      if(time_out_id) remove_call_out(time_out_id);
+      foreach(iapd->options;; object option) {
+        if(option->prefix && option->preferred_lifetime)
+          have_good_lease = 1;
+      }
 
-      current_iapd_confirmed = 1;
-      object old_option, new_option;
-      if(lease_data && lease_data->confirmed)
-        old_option = lease_data->current_iapd->get_option(OPTION_IA_PDOPTION);
+      if(have_good_lease) {
+        current_state = NOT_AWAITING;
+        last_message_type = 0;
+        if(time_out_id) remove_call_out(time_out_id);
+
+        current_iapd_confirmed = 1;
+        object old_option, new_option;
+        if(lease_data && lease_data->confirmed)
+          old_option = lease_data->current_iapd->get_option(OPTION_IA_PDOPTION);
       
-      write_lease(message, addr, 1);
+        write_lease(message, addr, 1);
 
-      if(lease_data && lease_data->confirmed)
-        new_option = lease_data->current_iapd->get_option(OPTION_IA_PDOPTION);
-      write_lease(message, addr, 1);
-      trigger_lease(new_option, !new_option->eq(old_option), old_option);
+        if(lease_data && lease_data->confirmed)
+          new_option = lease_data->current_iapd->get_option(OPTION_IA_PDOPTION);
+        write_lease(message, addr, 1);
+        trigger_lease(new_option, !new_option->eq(old_option), old_option);
+      }
     }
   }
 }
@@ -188,7 +215,9 @@ void rebind_failed() {
   
   call_out(system_module->prefix_abandoned, 0, ld->current_iapd->get_option(OPTION_IA_PDOPTION));
   rm(config->leasefile); 
-  call_out(begin_solicit, random((float)SOL_MAX_DELAY), 0);
+  if(keep_trying) 
+    call_out(begin_solicit, random((float)SOL_MAX_DELAY), 0);
+  if(shutting_down) call_out(exit, 0, 0);
 }
 
 int(0..1) is_actionable_advertise(AdvertiseMessage message) {
@@ -221,6 +250,10 @@ int(0..1) is_actionable_reply(ReplyMessage message) {
   if(!message->has_option(OPTION_SERVER_IDENTIFIER)) return 0;
   if(message->get_option(OPTION_CLIENT_IDENTIFIER)->duid != duid) return 0;
 
+  return 1;
+}
+
+int(0..1) is_leasable_reply(ReplyMessage message) {
   // TODO: do we need to abandon the lease if we get a status code?
   if(message->has_option(OPTION_STATUS_CODE) && message->get_option(OPTION_STATUS_CODE)->status_code == STATUS_NO_PREFIX_AVAILABLE) {
     string message = message->get_option(OPTION_STATUS_CODE)->status_message;
@@ -282,6 +315,7 @@ void got_packet(mapping data, mixed ... args) {
 void send(DHCPMessage message, string dest, int port) {
   string m = message->encode();
   werror("sending message: %O -> %O to %O on port %d\n", message, m, dest, port);
+  last_message_type = message->message_type;
   dhcp->send(dest, port, m);
 }
 
@@ -295,6 +329,13 @@ void begin_solicit(int|void since) {
 
 void begin_request(int|void since) {
   call_out(send_request, 0, since);
+}
+
+void begin_release(int since) {
+  if(t1_call_out) remove_call_out(t1_call_out);
+  if(t2_call_out) remove_call_out(t2_call_out);
+  if(time_out_id) remove_call_out(time_out_id);
+  call_out(send_release, 0, since);
 }
 
 void begin_renew(int since) {
@@ -312,6 +353,7 @@ void receive_timed_out(int since, int attempts) {
   werror("Hit timeout awaiting actionable messages\n");
   int old_state = current_state;
   current_state = NOT_AWAITING;
+  last_message_type = 0;
 
   if(attempts < 5) { 
     float timeout = last_timeout + random(last_timeout * 2.0);
@@ -334,6 +376,7 @@ void renew_timed_out(int since, int attempts) {
   werror("Hit timeout awaiting actionable messages for our RENEW requests\n");
   int old_state = current_state;
   current_state = NOT_AWAITING;
+  last_message_type = 0;
 
   if(attempts < 5) { 
     float timeout = last_timeout + random(last_timeout * 2.0);
@@ -350,6 +393,24 @@ void rebind_timed_out(int since, int attempts) {
   werror("Hit timeout awaiting actionable messages for our REBIND requests\n");
   int old_state = current_state;
   current_state = NOT_AWAITING;
+  last_message_type = 0;
+
+  if(attempts < 10) { 
+    float timeout = last_timeout + random(last_timeout * 2.0);
+    if(old_state == AWAIT_REPLY)
+      call_out(send_rebind, timeout, since, attempts);
+  }
+  else {
+    werror("Hit retry limit. Abandoning lease\n");
+    rebind_failed();
+  }
+}
+
+void release_timed_out(int since, int attempts) {
+  werror("Hit timeout awaiting actionable messages for our RELEASE requests\n");
+  int old_state = current_state;
+  current_state = NOT_AWAITING;
+  last_message_type = 0;
 
   if(attempts < 10) { 
     float timeout = last_timeout + random(last_timeout * 2.0);
@@ -388,6 +449,38 @@ void send_rebind(int since, int attempts, float timeout) {
  
   send_broadcast(p); 
 } 
+
+void send_release(int since, int attempts, float timeout) {
+  if(current_state != NOT_AWAITING) {
+    throw(Error.Generic("Can't send RELEASE if we're already awaiting a message. Current state = " + current_state + "\n"));
+  }
+
+  // are we a re-transmission?
+  if(!since) {
+    since = time();
+    current_txn = generate_transaction_id();
+  } 
+
+  object p = ReleaseMessage(current_txn);
+  object id = ClientIdOption(duid);
+  object sid = lease_data->server_identifier;
+
+  p->options += ({id});
+  p->options += ({sid});
+  p->options += ({OptionRequestOption(({25}))});
+  p->options += ({ElapsedTimeOption(since)});
+  p->options += ({lease_data->current_iapd});
+
+  if(!timeout) timeout = 5.0;
+  last_timeout = timeout;
+  time_out_id = call_out(release_timed_out, timeout, since, attempts++);
+  current_state = AWAIT_REPLY;
+
+  if(lease_data->server_unicast)
+     send(p, lease_data->server_unicast, DHCP_SERVER_PORT);
+  else
+     send_broadcast(p);
+}
 
 void send_renew(int since, int attempts, float timeout) {
   if(current_state != NOT_AWAITING) {
@@ -465,7 +558,7 @@ void send_solicit(int|void since, int|void attempts, float|void timeout) {
   } 
   object p = SolicitMessage(current_txn);
   object id = ClientIdOption(duid);
-  object pd_opt = IA_PDOption(3600*24, 3600*36, 64, 0);
+  object pd_opt = IA_PDOption(3600*24, 3600*36, config->requested_prefix, 0);
   object ia_ident = iaid; 
 
   p->options += ({id});
