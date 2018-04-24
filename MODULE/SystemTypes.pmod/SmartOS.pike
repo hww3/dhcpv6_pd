@@ -8,9 +8,9 @@ string postamble = "\n#\n# END DHCPv6_PD Managed segment\n#\n";
 string ndpdconffile = "/etc/inet/ndpd.conf";
 
 string get_identifier() {
-  if(file_stat("/etc/dhcp/duid"))
-    return Stdio.read_file("/etc/dhcp/duid");
-  else 
+//  if(file_stat("/etc/dhcp/duid"))
+//    return Stdio.read_file("/etc/dhcp/duid");
+//  else 
     return Standards.JSON.decode(Process.popen("sysinfo"))->UUID;
 }
 
